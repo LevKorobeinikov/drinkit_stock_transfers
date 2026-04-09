@@ -21,8 +21,8 @@ def build_scheduler(bot: Bot, bg_factory: BgManagerFactory) -> AsyncIOScheduler:
     scheduler.add_job(
         run_transfer_job,
         trigger="cron",
-        hour=9,
-        minute=25,
+        hour=8,
+        minute=0,
         id="run_transfer_job",
         max_instances=1,
     )

@@ -5,6 +5,8 @@ services:
     image: postgres:15
     container_name: drinkit_db
     restart: unless-stopped
+    env_file:
+      - ../.env
     environment:
       POSTGRES_DB: dodo_stats
       POSTGRES_USER: myuser
@@ -14,11 +16,7 @@ services:
     volumes:
       - db_data:/var/lib/postgresql/data
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
-    healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U myuser" ]
-      interval: 5s
-      timeout: 5s
-      retries: 5
+
   redis:
     image: redis:7
     container_name: drinkit_redis
@@ -31,17 +29,19 @@ services:
       dockerfile: docker/Dockerfile
     container_name: drinkit_app
     depends_on:
-      db:
-        condition: service_healthy
+      - db
+      - redis
     env_file:
       - ../.env
     restart: unless-stopped
     ports:
       - "8080:8080"
     volumes:
+      - ../drinkit_stock_transfers:/app/drinkit_stock_transfers
       - ../storage:/app/storage
       - ../logs:/app/logs
-      - ../tokens.json:/app/drinkit_stock_transfers/tokens.json
+      - ../drinkit_stock_transfers/tokens.json:/app/drinkit_stock_transfers/tokens.json
+      - ../drinkit_stock_transfers/google_api_key.json:/app/drinkit_stock_transfers/google_api_key.json
 volumes:
   db_data:
   redis_data:

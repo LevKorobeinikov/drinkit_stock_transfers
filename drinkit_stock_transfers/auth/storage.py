@@ -8,7 +8,7 @@ from .models import TokenData
 
 
 class TokenStorage:
-    def __init__(self, path: str = "tokens.json"):
+    def __init__(self, path: str = "drinkit_stock_transfers/tokens.json"):
         self.path = path
 
     def load(self) -> TokenData | None:
