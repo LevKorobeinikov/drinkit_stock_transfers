@@ -13,15 +13,15 @@ def build_scheduler(bot: Bot, bg_factory: BgManagerFactory) -> AsyncIOScheduler:
     scheduler.add_job(
         morning_prompt,
         trigger="cron",
-        hour=8,
-        minute=15,
+        hour=11,
+        minute=0,
         kwargs={"bot": bot, "bg_factory": bg_factory},
         id="bot_morning_prompt",
     )
     scheduler.add_job(
         run_transfer_job,
         trigger="cron",
-        hour=8,
+        hour=13,
         minute=0,
         id="run_transfer_job",
         max_instances=1,

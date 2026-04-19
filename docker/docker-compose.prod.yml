@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   db:
     image: postgres:15
@@ -12,6 +10,11 @@ services:
     volumes:
       - db_data:/var/lib/postgresql/data
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U myuser -d dodo_stats"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   redis:
     image: redis:7
@@ -21,24 +24,24 @@ services:
       - redis_data:/data
 
   app:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
+    image: ghcr.io/LevKorobeinikov/drinkit-stock-transfers:latest
     container_name: drinkit_app
     depends_on:
-      - db
-      - redis
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
     env_file:
       - ../.env
     restart: unless-stopped
     ports:
       - "8080:8080"
     volumes:
-      - ../drinkit_stock_transfers:/app/drinkit_stock_transfers
       - ../storage:/app/storage
       - ../logs:/app/logs
       - ../drinkit_stock_transfers/tokens.json:/app/drinkit_stock_transfers/tokens.json
       - ../drinkit_stock_transfers/google_api_key.json:/app/drinkit_stock_transfers/google_api_key.json
+
 volumes:
   db_data:
   redis_data:
