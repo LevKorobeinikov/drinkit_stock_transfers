@@ -8,17 +8,28 @@ from aiogram.fsm.storage.base import DefaultKeyBuilder
 from aiogram.fsm.storage.redis import RedisStorage
 from aiogram.types import Message
 from aiogram_dialog import StartMode, setup_dialogs
+from aiohttp import web
 from redis.asyncio import Redis
 
 from bot.config import ADMIN_ID, BOT_TOKEN
-from bot.dialogs.employees_dialog import (
-    EmployeesSG,
-    employees_dialog,
-)
+from bot.dialogs.employees_dialog import EmployeesSG, employees_dialog
 from bot.dialogs.shift_dialog import ShiftSG, shift_dialog
 from scheduler.scheduler_service import build_scheduler
 
 redis = Redis(host="redis", port=6379)
+
+
+async def health(request):
+    return web.Response(text="OK")
+
+
+async def start_health_server():
+    app = web.Application()
+    app.router.add_get("/health", health)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", 8080)
+    await site.start()
 
 
 async def cmd_shift(message: Message, dialog_manager):
@@ -43,6 +54,9 @@ async def cmd_employees(message: Message, dialog_manager):
 async def main():
     if not BOT_TOKEN:
         raise RuntimeError("BOT_TOKEN не задан")
+
+    await start_health_server()
+
     bot = Bot(token=BOT_TOKEN)
     dp = Dispatcher(
         storage=RedisStorage(
