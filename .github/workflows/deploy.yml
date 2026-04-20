@@ -46,7 +46,7 @@ jobs:
       - name: Deploy on server
         run: |
           ssh -i ~/.ssh/id_ed25519 ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} '
-            cd /opt/drinkit/docker &&
+            cd /apt/drinkit/docker &&
             docker compose -f docker-compose.prod.yml pull app &&
             docker compose -f docker-compose.prod.yml up -d --remove-orphans
           '
