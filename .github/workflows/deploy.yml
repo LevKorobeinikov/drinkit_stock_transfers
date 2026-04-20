@@ -46,7 +46,7 @@ jobs:
       - name: Copy files to server
         run: |
           scp -i ~/.ssh/id_ed25519 \
-            ./docker/deploy.sh \
+            ../docker/deploy.sh \
             ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/home/ubuntu/apt/drinkit_stock_transfers/docker/
 
       - name: Deploy on server
