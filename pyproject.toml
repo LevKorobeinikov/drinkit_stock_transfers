@@ -19,6 +19,7 @@ aiogram-dialog = "^2.6.0"
 apscheduler = "^3.11.2"
 asyncio = "^4.0.0"
 redis = "^7.4.0"
+alembic = "^1.18.4"
 
 [tool.poetry.group.dev.dependencies]
 ruff = "^0.15.6"
