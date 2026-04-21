@@ -12,7 +12,7 @@ from aiohttp import web
 from redis.asyncio import Redis
 
 from bot.config import ADMIN_ID, BOT_TOKEN
-from bot.dialogs.audit_dialog import audit_router
+from bot.dialogs.audit_dialog import AuditSG, audit_dialog
 from bot.dialogs.employees_dialog import EmployeesSG, employees_dialog
 from bot.dialogs.shift_dialog import ShiftSG, shift_dialog
 from scheduler.scheduler_service import build_scheduler
@@ -52,6 +52,10 @@ async def cmd_employees(message: Message, dialog_manager):
     )
 
 
+async def cmd_audit(message: Message, dialog_manager):
+    await dialog_manager.start(AuditSG.point, mode=StartMode.RESET_STACK)
+
+
 async def main():
     if not BOT_TOKEN:
         raise RuntimeError("BOT_TOKEN не задан")
@@ -67,10 +71,11 @@ async def main():
     )
     dp.include_router(shift_dialog)
     dp.include_router(employees_dialog)
-    dp.include_router(audit_router)
+    dp.include_router(audit_dialog)
     bg_factory = setup_dialogs(dp)
     dp.message.register(cmd_shift, Command("shift"))
     dp.message.register(cmd_employees, Command("employees"))
+    dp.message.register(cmd_audit, Command("audit"))
     scheduler = build_scheduler(bot, bg_factory)
     scheduler.start()
     try:

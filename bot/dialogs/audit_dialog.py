@@ -2,23 +2,17 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from aiogram import F, Router
-from aiogram.filters import Command
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
-from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.filters.state import State, StatesGroup
+from aiogram.types import CallbackQuery, Message
+from aiogram_dialog import Dialog, DialogManager, Window
+from aiogram_dialog.widgets.input import MessageInput
+from aiogram_dialog.widgets.kbd import Back, Select
+from aiogram_dialog.widgets.text import Const, Format
 
-from bot.config import (
-    ADMIN_ID,
-    AUDIT_SHEET_ID,
-    AUDIT_SHEET_WORKSHEET,
-    GOOGLE_SHEETS_CLIENT_SECRET_PATH,
-)
+from bot.config import AUDIT_SHEET_ID, AUDIT_SHEET_WORKSHEET, GOOGLE_SHEETS_CLIENT_SECRET_PATH
 from bot.services.audit_definition import AUDIT_BLOCKS
 from bot.services.audit_sheet_service import AuditRow, AuditSheetService
 
-audit_router = Router(name="audit_router")
 audit_sheet_service = AuditSheetService(
     spreadsheet_id=AUDIT_SHEET_ID,
     worksheet_name=AUDIT_SHEET_WORKSHEET,
@@ -26,6 +20,9 @@ audit_sheet_service = AuditSheetService(
 )
 
 
+# -----------------------------
+# STATES
+# -----------------------------
 class AuditSG(StatesGroup):
     point = State()
     shift_team = State()
@@ -34,21 +31,16 @@ class AuditSG(StatesGroup):
     final_comment = State()
 
 
-def _score_keyboard(max_score: int) -> InlineKeyboardMarkup:
-    builder = InlineKeyboardBuilder()
-    for value in range(0, max_score + 1):
-        builder.button(text=str(value), callback_data=f"audit_score:{value}")
-    builder.adjust(5)
-    return builder.as_markup()
-
-
-def _current_item(data: dict):
+# -----------------------------
+# HELPERS
+# -----------------------------
+def _current_block_and_item(data: dict):
     block = AUDIT_BLOCKS[data["block_idx"]]
     item = block.items[data["item_idx"]]
     return block, item
 
 
-def _format_block_result(block_idx: int, scores: dict[str, int]) -> tuple[int, int, float]:
+def _block_result(block_idx: int, scores: dict) -> tuple[int, int, float]:
     block = AUDIT_BLOCKS[block_idx]
     achieved = sum(scores.get(item.code, 0) for item in block.items)
     max_score = block.max_score
@@ -56,129 +48,134 @@ def _format_block_result(block_idx: int, scores: dict[str, int]) -> tuple[int, i
     return achieved, max_score, percent
 
 
-async def _send_current_item(message: Message, state: FSMContext) -> None:
-    data = await state.get_data()
-    block, item = _current_item(data)
-    await message.answer(
-        (
-            f"Блок {block.index}/5\n"
-            f"{block.title}\n\n"
-            f"{item.code} {item.title}\n"
-            f"Оцени пункт от 0 до {item.max_score}:"
-        ),
-        reply_markup=_score_keyboard(item.max_score),
-    )
+# -----------------------------
+# GETTERS
+# -----------------------------
+async def score_getter(dialog_manager: DialogManager, **kwargs):
+    data = dialog_manager.dialog_data
+    block, item = _current_block_and_item(data)
+    return {
+        "block_index": block.index,
+        "block_title": block.title,
+        "item_code": item.code,
+        "item_title": item.title,
+        "item_max_score": item.max_score,
+        "scores_buttons": [
+            {"value": str(v), "label": str(v)} for v in range(0, item.max_score + 1)
+        ],
+    }
 
 
-@audit_router.message(Command("audit"))
-async def cmd_audit(message: Message, state: FSMContext):
-    if message.from_user and ADMIN_ID and message.from_user.id != ADMIN_ID:
-        return
-    await state.clear()
-    await state.set_state(AuditSG.point)
-    await message.answer("Старт аудита.\nНапиши название точки:")
+async def block_comment_getter(dialog_manager: DialogManager, **kwargs):
+    data = dialog_manager.dialog_data
+    block_idx = data["block_idx"]
+    achieved, max_score, percent = _block_result(block_idx, data["scores"])
+    return {
+        "block_index": AUDIT_BLOCKS[block_idx].index,
+        "achieved": achieved,
+        "max_score": max_score,
+        "percent": f"{percent:.1f}",
+    }
 
 
-@audit_router.message(AuditSG.point)
-async def on_point(message: Message, state: FSMContext):
+# -----------------------------
+# HANDLERS
+# -----------------------------
+async def on_point_entered(message: Message, message_input: MessageInput, manager: DialogManager):
     point = (message.text or "").strip()
     if not point:
-        await message.answer("Название точки не может быть пустым. Напиши название точки:")
+        await message.answer("Название точки не может быть пустым.")
         return
-    await state.update_data(point=point)
-    await state.set_state(AuditSG.shift_team)
-    await message.answer("Кто на смене? Напиши в одном сообщении.")
+    manager.dialog_data["point"] = point
+    await manager.switch_to(AuditSG.shift_team)
 
 
-@audit_router.message(AuditSG.shift_team)
-async def on_shift_team(message: Message, state: FSMContext):
+async def on_shift_team_entered(
+    message: Message, message_input: MessageInput, manager: DialogManager
+):
     shift_team = (message.text or "").strip()
     if not shift_team:
-        await message.answer("Состав смены не может быть пустым. Напиши в одном сообщении.")
+        await message.answer("Состав смены не может быть пустым.")
         return
-    await state.update_data(
-        shift_team=shift_team,
-        block_idx=0,
-        item_idx=0,
-        scores={},
-        block_comments={},
+    manager.dialog_data.update(
+        {
+            "shift_team": shift_team,
+            "block_idx": 0,
+            "item_idx": 0,
+            "scores": {},
+            "block_comments": {},
+        }
     )
-    await state.set_state(AuditSG.score)
-    await _send_current_item(message, state)
+    await manager.switch_to(AuditSG.score)
 
 
-@audit_router.callback_query(AuditSG.score, F.data.startswith("audit_score:"))
-async def on_score(callback: CallbackQuery, state: FSMContext):
-    data = await state.get_data()
-    block_idx = data["block_idx"]
-    item_idx = data["item_idx"]
+async def on_score_selected(
+    callback: CallbackQuery,
+    widget: Select,
+    manager: DialogManager,
+    item_id: str,
+):
+    data = manager.dialog_data
+    block, item = _current_block_and_item(data)
     scores = dict(data["scores"])
-    block = AUDIT_BLOCKS[block_idx]
-    item = block.items[item_idx]
-    score = int(callback.data.split(":")[1])
-    scores[item.code] = score
-    await state.update_data(scores=scores)
-    if item_idx + 1 < len(block.items):
-        await state.update_data(item_idx=item_idx + 1)
-        await callback.message.answer(f"Сохранено: {item.code} = {score}/{item.max_score}")
-        await _send_current_item(callback.message, state)
-        await callback.answer()
+    scores[item.code] = int(item_id)
+    manager.dialog_data["scores"] = scores
+    await callback.answer(f"{item.code} = {item_id}/{item.max_score}")
+    if data["item_idx"] + 1 < len(block.items):
+        manager.dialog_data["item_idx"] = data["item_idx"] + 1
+        await manager.update({})
         return
-    achieved, max_score, percent = _format_block_result(block_idx, scores)
-    await state.set_state(AuditSG.block_comment)
-    await callback.message.answer(
-        (
-            f"Блок {block.index} завершен: {achieved}/{max_score} "
-            f"({percent:.1f}%).\n"
-            "Напиши комментарий к этому блоку:"
-        )
-    )
-    await callback.answer()
+    await manager.switch_to(AuditSG.block_comment)
 
 
-@audit_router.message(AuditSG.block_comment)
-async def on_block_comment(message: Message, state: FSMContext):
+async def on_block_comment_entered(
+    message: Message,
+    message_input: MessageInput,
+    manager: DialogManager,
+):
     comment = (message.text or "").strip()
     if not comment:
-        await message.answer("Комментарий не может быть пустым. Напиши комментарий:")
+        await message.answer("Комментарий не может быть пустым.")
         return
-    data = await state.get_data()
+    data = manager.dialog_data
     block_idx = data["block_idx"]
     block_comments = dict(data["block_comments"])
     block_comments[str(block_idx)] = comment
-    await state.update_data(block_comments=block_comments)
+    manager.dialog_data["block_comments"] = block_comments
     if block_idx + 1 < len(AUDIT_BLOCKS):
-        await state.update_data(block_idx=block_idx + 1, item_idx=0)
-        await state.set_state(AuditSG.score)
-        await _send_current_item(message, state)
+        manager.dialog_data["block_idx"] = block_idx + 1
+        manager.dialog_data["item_idx"] = 0
+        await manager.switch_to(AuditSG.score)
         return
-    await state.set_state(AuditSG.final_comment)
-    await message.answer("Все 5 блоков завершены. Напиши итоговый вывод (общее впечатление):")
+    await manager.switch_to(AuditSG.final_comment)
 
 
-@audit_router.message(AuditSG.final_comment)
-async def on_final_comment(message: Message, state: FSMContext):
+async def on_final_comment_entered(
+    message: Message,
+    message_input: MessageInput,
+    manager: DialogManager,
+):
     final_comment = (message.text or "").strip()
     if not final_comment:
-        await message.answer("Итоговый вывод не может быть пустым. Напиши текст:")
+        await message.answer("Итоговый вывод не может быть пустым.")
         return
-    data = await state.get_data()
+    data = manager.dialog_data
     scores = data["scores"]
     block_comments = data["block_comments"]
-    block_scores_for_sheet: list[str] = []
-    total_max = 0
     total_achieved = 0
+    total_max = 0
+    block_scores_for_sheet: list[str] = []
     for idx, block in enumerate(AUDIT_BLOCKS):
-        achieved, max_score, percent = _format_block_result(idx, scores)
-        total_max += max_score
+        achieved, max_score, percent = _block_result(idx, scores)
         total_achieved += achieved
+        total_max += max_score
         comment = block_comments.get(str(idx), "")
         block_scores_for_sheet.append(
             f"B{block.index}: {achieved}/{max_score} ({percent:.1f}%). Комментарий: {comment}"
         )
-    auditor_name = (message.from_user.full_name if message.from_user else "") or "Unknown"
     total_percent = (total_achieved / total_max * 100) if total_max else 0.0
     total_score = f"{total_achieved}/{total_max} ({total_percent:.1f}%)"
+    auditor_name = (message.from_user.full_name if message.from_user else "") or "Unknown"
     row = AuditRow(
         date=datetime.now().strftime("%Y-%m-%d %H:%M"),
         auditor=auditor_name,
@@ -188,13 +185,60 @@ async def on_final_comment(message: Message, state: FSMContext):
         final_comment=final_comment,
         total_score=total_score,
     )
+
     try:
         audit_sheet_service.append_row(row)
-        await message.answer(
-            "Аудит завершен и сохранен в Google Sheets.\n" f"Итоговый балл: {total_score}"
-        )
+        await message.answer(f"Аудит завершен ✅\nИтоговый балл: {total_score}")
     except Exception as error:
-        await message.answer(
-            "Аудит завершен, но сохранить в Google Sheets не получилось.\n" f"Ошибка: {error}"
-        )
-    await state.clear()
+        await message.answer(f"Аудит завершен, но не сохранился в Sheets.\nОшибка: {error}")
+
+    await manager.done()
+
+
+# -----------------------------
+# DIALOG
+# -----------------------------
+audit_dialog = Dialog(
+    Window(
+        Const("Старт аудита.\nНапиши название точки:"),
+        MessageInput(on_point_entered),
+        state=AuditSG.point,
+    ),
+    Window(
+        Const("Кто на смене? Напиши в одном сообщении."),
+        MessageInput(on_shift_team_entered),
+        Back(Const("Назад")),
+        state=AuditSG.shift_team,
+    ),
+    Window(
+        Format(
+            "Блок {block_index}/5\n"
+            "{block_title}\n\n"
+            "{item_code} {item_title}\n"
+            "Оцени от 0 до {item_max_score}:"
+        ),
+        Select(
+            Format("{item[label]}"),
+            id="score_select",
+            items="scores_buttons",
+            item_id_getter=lambda x: x["value"],
+            on_click=on_score_selected,
+        ),
+        state=AuditSG.score,
+        getter=score_getter,
+    ),
+    Window(
+        Format(
+            "Блок {block_index} завершен: {achieved}/{max_score} ({percent}%).\n"
+            "Напиши комментарий к этому блоку:"
+        ),
+        MessageInput(on_block_comment_entered),
+        state=AuditSG.block_comment,
+        getter=block_comment_getter,
+    ),
+    Window(
+        Const("Все 5 блоков завершены.\nНапиши итоговый вывод:"),
+        MessageInput(on_final_comment_entered),
+        state=AuditSG.final_comment,
+    ),
+)
