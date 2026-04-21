@@ -12,6 +12,7 @@ from aiohttp import web
 from redis.asyncio import Redis
 
 from bot.config import ADMIN_ID, BOT_TOKEN
+from bot.dialogs.audit_dialog import audit_router
 from bot.dialogs.employees_dialog import EmployeesSG, employees_dialog
 from bot.dialogs.shift_dialog import ShiftSG, shift_dialog
 from scheduler.scheduler_service import build_scheduler
@@ -66,6 +67,7 @@ async def main():
     )
     dp.include_router(shift_dialog)
     dp.include_router(employees_dialog)
+    dp.include_router(audit_router)
     bg_factory = setup_dialogs(dp)
     dp.message.register(cmd_shift, Command("shift"))
     dp.message.register(cmd_employees, Command("employees"))
