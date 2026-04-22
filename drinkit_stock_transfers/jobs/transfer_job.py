@@ -1,6 +1,5 @@
 import os
 from datetime import datetime
-from pathlib import Path
 
 from drinkit_stock_transfers.clients.dodo_api import DodoAPIClient
 from drinkit_stock_transfers.clients.google_sheets_client import GoogleSheetsClient
@@ -24,10 +23,7 @@ def run_transfer_job():
             zero_shipped_rows = repo.fetch_zero_shipped(datetime.now().date())
             if zero_shipped_rows:
                 sheets_client = GoogleSheetsClient(
-                    service_account_path=str(
-                        Path(__file__).resolve().parent.parent
-                        / os.getenv("GOOGLE_SHEETS_CLIENT_SECRET_PATH")
-                    ),
+                    service_account_path=f"/app/{os.getenv('GOOGLE_SHEETS_CLIENT_SECRET_PATH')}",
                     spreadsheet_id=os.getenv("GOOGLE_SHEET_ID"),
                 )
                 reporting_service = ReportingService(sheets_client)
