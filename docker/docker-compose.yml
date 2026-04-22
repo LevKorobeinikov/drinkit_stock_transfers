@@ -37,8 +37,8 @@ services:
       - ../drinkit_stock_transfers:/app/drinkit_stock_transfers
       - ../storage:/app/storage
       - ../logs:/app/logs
-      - ../drinkit_stock_transfers/tokens.json:/app/drinkit_stock_transfers/tokens.json
       - ../drinkit_stock_transfers/google_api_key.json:/app/drinkit_stock_transfers/google_api_key.json
+      - ../drinkit_stock_transfers/tokens.json:/app/drinkit_stock_transfers/tokens.json
 volumes:
   db_data:
   redis_data:
