@@ -3,8 +3,9 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 
-import gspread
-from google.oauth2.service_account import Credentials
+import gspread  # type: ignore[import-untyped]
+from google.oauth2.service_account import Credentials  # type: ignore[import-untyped]
+from gspread.utils import ValueInputOption  # type: ignore[import-untyped]
 
 from drinkit_stock_transfers.logger import get_logger
 
@@ -39,6 +40,6 @@ class GoogleSheetsClient:
         normalized_rows = [normalize_row(r) for r in rows]
         existing = self.sheet.get_all_values()
         if headers and not existing:
-            self.sheet.append_row(headers, value_input_option="USER_ENTERED")
-        self.sheet.append_rows(normalized_rows, value_input_option="USER_ENTERED")
+            self.sheet.append_row(headers, value_input_option=ValueInputOption.user_entered)
+        self.sheet.append_rows(normalized_rows, value_input_option=ValueInputOption.user_entered)
         logger.info("sheets_rows_inserted", extra={"count": len(normalized_rows)})

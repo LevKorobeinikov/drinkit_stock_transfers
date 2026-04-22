@@ -1,7 +1,7 @@
 import datetime
 import webbrowser
 
-import requests
+import requests  # type: ignore[import-untyped]
 from flask import Flask, request
 
 from drinkit_stock_transfers.auth.models import TokenData

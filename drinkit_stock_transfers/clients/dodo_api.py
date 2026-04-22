@@ -1,6 +1,6 @@
 from datetime import datetime
 
-import requests
+import requests  # type: ignore[import-untyped]
 
 from drinkit_stock_transfers.auth import auth_service
 from drinkit_stock_transfers.config import API_URL, UNITS
@@ -12,7 +12,7 @@ logger = get_logger(__name__)
 
 
 class DodoAPIClient:
-    def __init__(self, units: str = None):
+    def __init__(self, units: str | None = None):
         self.session = requests.Session()
         self.units = units or UNITS
         self.retry_service = RetryService()
@@ -43,7 +43,7 @@ class DodoAPIClient:
 
         return self.retry_service.call(request_page)
 
-    def fetch_transfers(self, date_from: datetime, date_to: datetime, units: str = None):
+    def fetch_transfers(self, date_from: datetime, date_to: datetime, units: str | None = None):
         """Fetch all transfers for a period (paginated)."""
         paginator = Paginator(
             self.session, API_URL, {"Authorization": f"Bearer {auth_service.get_access_token()}"}

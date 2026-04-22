@@ -26,6 +26,7 @@ tree = "^0.2.4"
 ruff = "^0.15.6"
 pytest = "^8.3.2"
 pre-commit = "^3.7.1"
+types-requests = "^2.32.4.20250809"
 
 [tool.ruff]
 line-length = 100
@@ -33,6 +34,12 @@ target-version = "py313"
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]
+
+[tool.mypy]
+python_version = "3.13"
+no_implicit_optional = true
+ignore_missing_imports = true
+warn_unused_ignores = true
 
 [build-system]
 requires = ["poetry-core"]

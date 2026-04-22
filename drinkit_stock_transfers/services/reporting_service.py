@@ -9,7 +9,11 @@ logger = get_logger(__name__)
 
 
 class ReportingService:
-    def __init__(self, sheets_client: GoogleSheetsClient, retry_service: RetryService = None):
+    def __init__(
+        self,
+        sheets_client: GoogleSheetsClient,
+        retry_service: RetryService | None = None,
+    ):
         self.sheets_client = sheets_client
         self.retry_service = retry_service or RetryService(retries=3, backoff=2)
 
