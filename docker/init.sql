@@ -1,4 +1,65 @@
 -- =========================
+-- Таблица аудитов
+-- =========================
+CREATE TABLE IF NOT EXISTS audits (
+    id BIGSERIAL PRIMARY KEY,
+    audit_uid UUID NOT NULL UNIQUE,
+    audited_at TIMESTAMP NOT NULL,
+    auditor TEXT NOT NULL,
+    point TEXT NOT NULL,
+    shift_team TEXT NOT NULL,
+    total_score TEXT NOT NULL,
+    final_comment TEXT,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS audit_block_scores (
+    id BIGSERIAL PRIMARY KEY,
+    audit_id BIGINT NOT NULL REFERENCES audits(id) ON DELETE CASCADE,
+    block_index INT NOT NULL,
+    block_title TEXT NOT NULL,
+    achieved INT NOT NULL,
+    max_score INT NOT NULL,
+    percent DECIMAL(5,2) NOT NULL,
+    comment TEXT,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS audit_outbox_events (
+    id BIGSERIAL PRIMARY KEY,
+    audit_id BIGINT NOT NULL REFERENCES audits(id) ON DELETE CASCADE,
+    channel TEXT NOT NULL,
+    payload JSONB NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    attempts INT NOT NULL DEFAULT 0,
+    next_attempt_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    sent_at TIMESTAMP NULL,
+    error_message TEXT NULL,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+    CONSTRAINT audit_outbox_events_unique UNIQUE (audit_id, channel)
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_block_scores_audit_id
+    ON audit_block_scores(audit_id);
+
+CREATE INDEX IF NOT EXISTS idx_audits_point
+    ON audits(point);
+
+CREATE INDEX IF NOT EXISTS idx_audits_audited_at
+    ON audits(audited_at);
+
+CREATE INDEX IF NOT EXISTS idx_audit_outbox_status_next_attempt
+    ON audit_outbox_events(status, next_attempt_at);
+
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO myuser;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO myuser;
+
+ALTER TABLE audits OWNER TO myuser;
+ALTER TABLE audit_block_scores OWNER TO myuser;
+
+-- =========================
 -- Таблица подразделений
 -- =========================
 CREATE TABLE IF NOT EXISTS units (

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from uuid import uuid4
 
 from aiogram.filters.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
@@ -9,15 +10,16 @@ from aiogram_dialog.widgets.input import MessageInput
 from aiogram_dialog.widgets.kbd import Back, Select
 from aiogram_dialog.widgets.text import Const, Format
 
-from bot.config import AUDIT_SHEET_ID, AUDIT_SHEET_WORKSHEET, GOOGLE_SHEETS_CLIENT_SECRET_PATH
 from bot.services.audit_definition import AUDIT_BLOCKS
-from bot.services.audit_sheet_service import AuditRow, AuditSheetService
-
-audit_sheet_service = AuditSheetService(
-    spreadsheet_id=AUDIT_SHEET_ID,
-    worksheet_name=AUDIT_SHEET_WORKSHEET,
-    service_account_json=GOOGLE_SHEETS_CLIENT_SECRET_PATH,
+from drinkit_stock_transfers.logger import get_logger
+from drinkit_stock_transfers.repositories.audit_repository import (
+    AuditBlockResult,
+    AuditRecord,
+    AuditRepository,
 )
+
+logger = get_logger(__name__)
+audit_repository = AuditRepository()
 
 
 # -----------------------------
@@ -99,6 +101,7 @@ async def on_shift_team_entered(
         return
     manager.dialog_data.update(
         {
+            "audit_uid": str(uuid4()),
             "shift_team": shift_team,
             "block_idx": 0,
             "item_idx": 0,
@@ -160,39 +163,124 @@ async def on_final_comment_entered(
         await message.answer("Итоговый вывод не может быть пустым.")
         return
     data = manager.dialog_data
-    scores = data["scores"]
-    block_comments = data["block_comments"]
+    auditor_name = (message.from_user.full_name if message.from_user else "") or "Unknown"
+    now = datetime.now()
+    block_results, block_scores_for_sheet, total_achieved, total_max = _build_block_results(
+        scores=data["scores"],
+        block_comments=data["block_comments"],
+    )
+    total_percent = (total_achieved / total_max * 100) if total_max else 0.0
+    total_score = f"{total_achieved}/{total_max} ({total_percent:.1f}%)"
+    db_error, created = _save_audit(
+        data,
+        auditor_name,
+        now,
+        block_results,
+        block_scores_for_sheet,
+        final_comment,
+        total_score,
+    )
+    await message.answer(_build_result_message(total_score, db_error, created))
+    await manager.done()
+
+
+def _build_block_results(
+    scores: dict,
+    block_comments: dict,
+) -> tuple[list[AuditBlockResult], list[str], int, int]:
+    block_results = []
+    block_scores_for_sheet = []
     total_achieved = 0
     total_max = 0
-    block_scores_for_sheet: list[str] = []
     for idx, block in enumerate(AUDIT_BLOCKS):
         achieved, max_score, percent = _block_result(idx, scores)
+        comment = block_comments.get(str(idx), "")
         total_achieved += achieved
         total_max += max_score
-        comment = block_comments.get(str(idx), "")
+        block_results.append(
+            AuditBlockResult(
+                block_index=block.index,
+                block_title=block.title,
+                achieved=achieved,
+                max_score=max_score,
+                percent=percent,
+                comment=comment,
+            )
+        )
         block_scores_for_sheet.append(
             f"B{block.index}: {achieved}/{max_score} ({percent:.1f}%). Комментарий: {comment}"
         )
-    total_percent = (total_achieved / total_max * 100) if total_max else 0.0
-    total_score = f"{total_achieved}/{total_max} ({total_percent:.1f}%)"
-    auditor_name = (message.from_user.full_name if message.from_user else "") or "Unknown"
-    row = AuditRow(
-        date=datetime.now().strftime("%Y-%m-%d %H:%M"),
-        auditor=auditor_name,
-        point=data["point"],
-        shift_team=data["shift_team"],
-        block_scores=block_scores_for_sheet,
-        final_comment=final_comment,
-        total_score=total_score,
-    )
+    return block_results, block_scores_for_sheet, total_achieved, total_max
 
+
+def _build_sheets_payload(
+    data: dict,
+    auditor_name: str,
+    now: datetime,
+    block_scores_for_sheet: list[str],
+    final_comment: str,
+    total_score: str,
+) -> dict:
+    return {
+        "date": now.strftime("%Y-%m-%d %H:%M"),
+        "auditor": auditor_name,
+        "point": data["point"],
+        "shift_team": data["shift_team"],
+        "block_scores": block_scores_for_sheet,
+        "final_comment": final_comment,
+        "total_score": total_score,
+    }
+
+
+def _save_audit(
+    data: dict,
+    auditor_name: str,
+    now: datetime,
+    block_results: list[AuditBlockResult],
+    block_scores_for_sheet: list[str],
+    final_comment: str,
+    total_score: str,
+) -> tuple[str | None, bool]:
     try:
-        audit_sheet_service.append_row(row)
-        await message.answer(f"Аудит завершен ✅\nИтоговый балл: {total_score}")
-    except Exception as error:
-        await message.answer(f"Аудит завершен, но не сохранился в Sheets.\nОшибка: {error}")
+        save_result = audit_repository.save(
+            AuditRecord(
+                audit_uid=data["audit_uid"],
+                audited_at=now,
+                auditor=auditor_name,
+                point=data["point"],
+                shift_team=data["shift_team"],
+                total_score=total_score,
+                final_comment=final_comment,
+                block_results=block_results,
+                sheets_payload=_build_sheets_payload(
+                    data=data,
+                    auditor_name=auditor_name,
+                    now=now,
+                    block_scores_for_sheet=block_scores_for_sheet,
+                    final_comment=final_comment,
+                    total_score=total_score,
+                ),
+            )
+        )
+        return None, save_result.created
+    except Exception as e:
+        logger.exception("Failed to save audit")
+        return str(e), False
 
-    await manager.done()
+
+def _build_result_message(
+    total_score: str,
+    db_error: str | None,
+    created: bool,
+) -> str:
+    if not db_error:
+        status = "Аудит сохранен в БД и поставлен в очередь отправки в Google Sheets."
+        if not created:
+            status = "Аудит обновлен и снова поставлен в очередь отправки в Google Sheets."
+        return f"{status}\nИтоговый балл: {total_score}"
+    if db_error:
+        return f"Аудит не сохранен\nИтоговый балл: {total_score}\nБД: {db_error}"
+    return f"Аудит завершен\nИтоговый балл: {total_score}"
 
 
 # -----------------------------

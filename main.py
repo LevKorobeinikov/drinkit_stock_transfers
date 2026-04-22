@@ -11,10 +11,11 @@ from aiogram_dialog import StartMode, setup_dialogs
 from aiohttp import web
 from redis.asyncio import Redis
 
-from bot.config import ADMIN_ID, BOT_TOKEN
+from bot.config import validate_and_get_settings
 from bot.dialogs.audit_dialog import AuditSG, audit_dialog
 from bot.dialogs.employees_dialog import EmployeesSG, employees_dialog
 from bot.dialogs.shift_dialog import ShiftSG, shift_dialog
+from bot.middlewares.admin_only import AdminOnlyMiddleware
 from scheduler.scheduler_service import build_scheduler
 
 redis = Redis(host="redis", port=6379)
@@ -34,8 +35,6 @@ async def start_health_server():
 
 
 async def cmd_shift(message: Message, dialog_manager):
-    if message.from_user.id != ADMIN_ID:
-        return
     await dialog_manager.start(
         ShiftSG.pick,
         data={"picked": []},
@@ -44,8 +43,6 @@ async def cmd_shift(message: Message, dialog_manager):
 
 
 async def cmd_employees(message: Message, dialog_manager):
-    if message.from_user.id != ADMIN_ID:
-        return
     await dialog_manager.start(
         EmployeesSG.menu,
         mode=StartMode.RESET_STACK,
@@ -57,18 +54,18 @@ async def cmd_audit(message: Message, dialog_manager):
 
 
 async def main():
-    if not BOT_TOKEN:
-        raise RuntimeError("BOT_TOKEN не задан")
-
+    settings = validate_and_get_settings()
     await start_health_server()
-
-    bot = Bot(token=BOT_TOKEN)
+    bot = Bot(token=settings.bot_token)
     dp = Dispatcher(
         storage=RedisStorage(
             redis=redis,
             key_builder=DefaultKeyBuilder(with_destiny=True),
         )
     )
+    admin_only = AdminOnlyMiddleware(settings.admin_ids)
+    dp.message.middleware(admin_only)
+    dp.callback_query.middleware(admin_only)
     dp.include_router(shift_dialog)
     dp.include_router(employees_dialog)
     dp.include_router(audit_dialog)
