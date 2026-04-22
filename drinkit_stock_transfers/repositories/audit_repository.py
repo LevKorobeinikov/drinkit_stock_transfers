@@ -157,7 +157,7 @@ class AuditRepository:
                         INSERT INTO audit_block_scores
                             (
                             audit_id, block_index, block_title, achieved,
-                            max_score, percent, comment,
+                            max_score, percent, comment
                             )
                         VALUES %s
                         """,
