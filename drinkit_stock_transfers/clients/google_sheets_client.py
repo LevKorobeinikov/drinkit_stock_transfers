@@ -3,9 +3,9 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 
-import gspread  # type: ignore[import-untyped]
-from google.oauth2.service_account import Credentials  # type: ignore[import-untyped]
-from gspread.utils import ValueInputOption  # type: ignore[import-untyped]
+import gspread
+from google.oauth2.service_account import Credentials
+from gspread.utils import ValueInputOption
 
 from drinkit_stock_transfers.logger import get_logger
 

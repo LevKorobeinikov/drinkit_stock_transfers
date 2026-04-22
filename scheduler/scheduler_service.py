@@ -23,7 +23,7 @@ def build_scheduler(bot: Bot, bg_factory: BgManagerFactory) -> AsyncIOScheduler:
         run_transfer_job,
         trigger="cron",
         hour=14,
-        minute=30,
+        minute=50,
         id="run_transfer_job",
         max_instances=1,
     )

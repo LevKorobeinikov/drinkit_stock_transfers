@@ -1,3 +1,5 @@
+# mypy: disable-error-code=import-untyped
+
 from __future__ import annotations
 
 import datetime
@@ -36,6 +38,9 @@ class AuthService:
         with self._lock:
             if self._token and not self._token.is_expired():
                 return self._token.access_token
+            current_token = self._token
+            if current_token is None:
+                raise Exception("Run auth flow locally and provide tokens.json")
             print("Refreshing token...")
             response = http.post(
                 TOKEN_URL,
@@ -43,7 +48,7 @@ class AuthService:
                     "client_id": CLIENT_ID,
                     "client_secret": CLIENT_SECRET,
                     "grant_type": "refresh_token",
-                    "refresh_token": self._token.refresh_token,
+                    "refresh_token": current_token.refresh_token,
                 },
                 timeout=10,
             )
@@ -51,7 +56,7 @@ class AuthService:
             data = response.json()
             new_token = TokenData(
                 access_token=data["access_token"],
-                refresh_token=data.get("refresh_token", self._token.refresh_token),
+                refresh_token=data.get("refresh_token", current_token.refresh_token),
                 expires_at=datetime.datetime.utcnow()
                 + datetime.timedelta(seconds=data["expires_in"]),
             )

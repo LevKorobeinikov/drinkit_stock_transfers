@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from aiogram.filters.state import State, StatesGroup  # type: ignore[import-untyped]
-from aiogram.types import CallbackQuery  # type: ignore[import-untyped]
-from aiogram_dialog import Dialog, DialogManager, Window  # type: ignore[import-untyped]
-from aiogram_dialog.widgets.kbd import Button, Select  # type: ignore[import-untyped]
-from aiogram_dialog.widgets.text import Const, Format  # type: ignore[import-untyped]
+from aiogram.filters.state import State, StatesGroup
+from aiogram.types import CallbackQuery
+from aiogram_dialog import Dialog, DialogManager, Window
+from aiogram_dialog.widgets.kbd import Button, Select
+from aiogram_dialog.widgets.text import Const, Format
 
 from bot.config import GROUP_CHAT_ID
 from bot.services.assignment_service import (
@@ -67,7 +67,11 @@ async def on_done(
         return
     assignment = build_assignment(picked)
     result = format_assignment(assignment)
-    await callback.bot.send_message(chat_id=GROUP_CHAT_ID, text=result)
+    bot = callback.bot
+    if bot is None:
+        await callback.answer("Не удалось отправить сообщение в группу", show_alert=True)
+        return
+    await bot.send_message(chat_id=GROUP_CHAT_ID, text=result)
     if callback.message:
         await callback.message.answer("Отправил в группу ✅")
     else:

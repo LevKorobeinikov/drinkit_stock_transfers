@@ -33,7 +33,7 @@ def run_audit_outbox_job(batch_size: int = 100) -> None:
         if not events:
             return
 
-        sheets_events = [event for event in events if event.channel == OUTBOX_CHANNEL_GOOGLE_SHEETS]
+        sheets_events = [e for e in events if e.channel == OUTBOX_CHANNEL_GOOGLE_SHEETS]
         if not sheets_events:
             return
 
@@ -44,8 +44,8 @@ def run_audit_outbox_job(batch_size: int = 100) -> None:
         )
 
         try:
-            sheet_service.append_rows([_event_to_row(event.payload) for event in sheets_events])
-            audit_repository.mark_outbox_events_sent([event.id for event in sheets_events])
+            sheet_service.append_rows([_event_to_row(e) for e in sheets_events])
+            audit_repository.mark_outbox_events_sent([e.id for e in sheets_events])
             logger.info("Sent %s audit outbox events to Google Sheets", len(sheets_events))
         except Exception as error:
             for event in sheets_events:
@@ -55,5 +55,5 @@ def run_audit_outbox_job(batch_size: int = 100) -> None:
                     backoff_seconds=30,
                 )
             logger.exception("Failed to send audit outbox batch")
-    finally:
-        DBConnectionPool.close_all()
+    except Exception as error:
+        logger.exception(f"Unexpected error in audit outbox job / {error}")

@@ -1,6 +1,8 @@
+# mypy: disable-error-code=import-untyped
+
 from datetime import datetime
 
-import requests  # type: ignore[import-untyped]
+import requests
 
 from drinkit_stock_transfers.auth import auth_service
 from drinkit_stock_transfers.config import API_URL, UNITS

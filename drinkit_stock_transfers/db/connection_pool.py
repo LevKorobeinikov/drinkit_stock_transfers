@@ -31,6 +31,7 @@ class DBConnectionPool:
     def close_all(cls):
         if cls._pool:
             cls._pool.closeall()
+            cls._pool = None
 
 
 @contextmanager

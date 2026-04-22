@@ -1,7 +1,9 @@
+# mypy: disable-error-code=import-untyped
+
 import datetime
 import webbrowser
 
-import requests  # type: ignore[import-untyped]
+import requests
 from flask import Flask, request
 
 from drinkit_stock_transfers.auth.models import TokenData
