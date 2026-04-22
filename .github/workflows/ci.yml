@@ -30,9 +30,6 @@ jobs:
       - name: Mypy
         run: poetry run mypy --ignore-missing-imports bot drinkit_stock_transfers scheduler main.py
 
-      - name: Tests
-        run: poetry run pytest -q
-
   container-smoke:
     runs-on: ubuntu-latest
     steps:

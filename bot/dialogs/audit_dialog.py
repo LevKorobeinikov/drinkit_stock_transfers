@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 from uuid import uuid4
 
@@ -22,9 +23,6 @@ logger = get_logger(__name__)
 audit_repository = AuditRepository()
 
 
-# -----------------------------
-# STATES
-# -----------------------------
 class AuditSG(StatesGroup):
     point = State()
     shift_team = State()
@@ -33,9 +31,19 @@ class AuditSG(StatesGroup):
     final_comment = State()
 
 
-# -----------------------------
-# HELPERS
-# -----------------------------
+@dataclass
+class AuditDraft:
+    audit_uid: str
+    auditor_name: str
+    now: datetime
+    point: str
+    shift_team: str
+    final_comment: str
+    total_score: str
+    block_results: list[AuditBlockResult]
+    block_scores_for_sheet: list[str]
+
+
 def _current_block_and_item(data: dict):
     block = AUDIT_BLOCKS[data["block_idx"]]
     item = block.items[data["item_idx"]]
@@ -50,9 +58,88 @@ def _block_result(block_idx: int, scores: dict) -> tuple[int, int, float]:
     return achieved, max_score, percent
 
 
-# -----------------------------
-# GETTERS
-# -----------------------------
+def _build_block_results(
+    scores: dict,
+    block_comments: dict,
+) -> tuple[list[AuditBlockResult], list[str], int, int]:
+    block_results = []
+    block_scores_for_sheet = []
+    total_achieved = 0
+    total_max = 0
+    for idx, block in enumerate(AUDIT_BLOCKS):
+        achieved, max_score, percent = _block_result(idx, scores)
+        comment = block_comments.get(str(idx), "")
+        total_achieved += achieved
+        total_max += max_score
+        block_results.append(
+            AuditBlockResult(
+                block_index=block.index,
+                block_title=block.title,
+                achieved=achieved,
+                max_score=max_score,
+                percent=percent,
+                comment=comment,
+            )
+        )
+        block_scores_for_sheet.append(
+            f"B{block.index}: {achieved}/{max_score}" f" ({percent:.1f}%). Комментарий: {comment}"
+        )
+    return block_results, block_scores_for_sheet, total_achieved, total_max
+
+
+def _build_sheets_payload(draft: AuditDraft) -> dict:
+    return {
+        "date": draft.now.strftime("%Y-%m-%d %H:%M"),
+        "auditor": draft.auditor_name,
+        "point": draft.point,
+        "shift_team": draft.shift_team,
+        "block_scores": draft.block_scores_for_sheet,
+        "final_comment": draft.final_comment,
+        "total_score": draft.total_score,
+    }
+
+
+def _save_audit(draft: AuditDraft) -> tuple[str | None, bool]:
+    try:
+        result = audit_repository.save(
+            AuditRecord(
+                audit_uid=draft.audit_uid,
+                audited_at=draft.now,
+                auditor=draft.auditor_name,
+                point=draft.point,
+                shift_team=draft.shift_team,
+                total_score=draft.total_score,
+                final_comment=draft.final_comment,
+                block_results=draft.block_results,
+                sheets_payload=_build_sheets_payload(draft),
+            )
+        )
+        return None, result.created
+    except Exception as error:
+        logger.exception("Failed to save audit")
+        return str(error), False
+
+
+def _build_result_message(
+    total_score: str,
+    db_error: str | None,
+    created: bool,
+) -> str:
+    if db_error:
+        return f"Аудит не сохранен ❌\n" f"Итоговый балл: {total_score}\n" f"Ошибка: {db_error}"
+    if not created:
+        return (
+            f"Аудит обновлен ✅\n"
+            f"Итоговый балл: {total_score}\n"
+            f"Поставлен в очередь отправки в Google Sheets."
+        )
+    return (
+        f"Аудит сохранен ✅\n"
+        f"Итоговый балл: {total_score}\n"
+        f"Поставлен в очередь отправки в Google Sheets."
+    )
+
+
 async def score_getter(dialog_manager: DialogManager, **kwargs):
     data = dialog_manager.dialog_data
     block, item = _current_block_and_item(data)
@@ -80,10 +167,11 @@ async def block_comment_getter(dialog_manager: DialogManager, **kwargs):
     }
 
 
-# -----------------------------
-# HANDLERS
-# -----------------------------
-async def on_point_entered(message: Message, message_input: MessageInput, manager: DialogManager):
+async def on_point_entered(
+    message: Message,
+    message_input: MessageInput,
+    manager: DialogManager,
+):
     point = (message.text or "").strip()
     if not point:
         await message.answer("Название точки не может быть пустым.")
@@ -93,7 +181,9 @@ async def on_point_entered(message: Message, message_input: MessageInput, manage
 
 
 async def on_shift_team_entered(
-    message: Message, message_input: MessageInput, manager: DialogManager
+    message: Message,
+    message_input: MessageInput,
+    manager: DialogManager,
 ):
     shift_team = (message.text or "").strip()
     if not shift_team:
@@ -171,121 +261,22 @@ async def on_final_comment_entered(
     )
     total_percent = (total_achieved / total_max * 100) if total_max else 0.0
     total_score = f"{total_achieved}/{total_max} ({total_percent:.1f}%)"
-    db_error, created = _save_audit(
-        data,
-        auditor_name,
-        now,
-        block_results,
-        block_scores_for_sheet,
-        final_comment,
-        total_score,
+    draft = AuditDraft(
+        audit_uid=data["audit_uid"],
+        auditor_name=auditor_name,
+        now=now,
+        point=data["point"],
+        shift_team=data["shift_team"],
+        final_comment=final_comment,
+        total_score=total_score,
+        block_results=block_results,
+        block_scores_for_sheet=block_scores_for_sheet,
     )
+    db_error, created = _save_audit(draft)
     await message.answer(_build_result_message(total_score, db_error, created))
     await manager.done()
 
 
-def _build_block_results(
-    scores: dict,
-    block_comments: dict,
-) -> tuple[list[AuditBlockResult], list[str], int, int]:
-    block_results = []
-    block_scores_for_sheet = []
-    total_achieved = 0
-    total_max = 0
-    for idx, block in enumerate(AUDIT_BLOCKS):
-        achieved, max_score, percent = _block_result(idx, scores)
-        comment = block_comments.get(str(idx), "")
-        total_achieved += achieved
-        total_max += max_score
-        block_results.append(
-            AuditBlockResult(
-                block_index=block.index,
-                block_title=block.title,
-                achieved=achieved,
-                max_score=max_score,
-                percent=percent,
-                comment=comment,
-            )
-        )
-        block_scores_for_sheet.append(
-            f"B{block.index}: {achieved}/{max_score} ({percent:.1f}%). Комментарий: {comment}"
-        )
-    return block_results, block_scores_for_sheet, total_achieved, total_max
-
-
-def _build_sheets_payload(
-    data: dict,
-    auditor_name: str,
-    now: datetime,
-    block_scores_for_sheet: list[str],
-    final_comment: str,
-    total_score: str,
-) -> dict:
-    return {
-        "date": now.strftime("%Y-%m-%d %H:%M"),
-        "auditor": auditor_name,
-        "point": data["point"],
-        "shift_team": data["shift_team"],
-        "block_scores": block_scores_for_sheet,
-        "final_comment": final_comment,
-        "total_score": total_score,
-    }
-
-
-def _save_audit(
-    data: dict,
-    auditor_name: str,
-    now: datetime,
-    block_results: list[AuditBlockResult],
-    block_scores_for_sheet: list[str],
-    final_comment: str,
-    total_score: str,
-) -> tuple[str | None, bool]:
-    try:
-        save_result = audit_repository.save(
-            AuditRecord(
-                audit_uid=data["audit_uid"],
-                audited_at=now,
-                auditor=auditor_name,
-                point=data["point"],
-                shift_team=data["shift_team"],
-                total_score=total_score,
-                final_comment=final_comment,
-                block_results=block_results,
-                sheets_payload=_build_sheets_payload(
-                    data=data,
-                    auditor_name=auditor_name,
-                    now=now,
-                    block_scores_for_sheet=block_scores_for_sheet,
-                    final_comment=final_comment,
-                    total_score=total_score,
-                ),
-            )
-        )
-        return None, save_result.created
-    except Exception as e:
-        logger.exception("Failed to save audit")
-        return str(e), False
-
-
-def _build_result_message(
-    total_score: str,
-    db_error: str | None,
-    created: bool,
-) -> str:
-    if not db_error:
-        status = "Аудит сохранен в БД и поставлен в очередь отправки в Google Sheets."
-        if not created:
-            status = "Аудит обновлен и снова поставлен в очередь отправки в Google Sheets."
-        return f"{status}\nИтоговый балл: {total_score}"
-    if db_error:
-        return f"Аудит не сохранен\nИтоговый балл: {total_score}\nБД: {db_error}"
-    return f"Аудит завершен\nИтоговый балл: {total_score}"
-
-
-# -----------------------------
-# DIALOG
-# -----------------------------
 audit_dialog = Dialog(
     Window(
         Const("Старт аудита.\nНапиши название точки:"),
@@ -317,7 +308,8 @@ audit_dialog = Dialog(
     ),
     Window(
         Format(
-            "Блок {block_index} завершен: {achieved}/{max_score} ({percent}%).\n"
+            "Блок {block_index} завершен: "
+            "{achieved}/{max_score} ({percent}%).\n"
             "Напиши комментарий к этому блоку:"
         ),
         MessageInput(on_block_comment_entered),
