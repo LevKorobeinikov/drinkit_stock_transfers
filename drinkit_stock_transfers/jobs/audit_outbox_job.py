@@ -44,7 +44,7 @@ def run_audit_outbox_job(batch_size: int = 100) -> None:
         )
 
         try:
-            sheet_service.append_rows([_event_to_row(e) for e in sheets_events])
+            sheet_service.append_rows([_event_to_row(e.payload) for e in sheets_events])
             audit_repository.mark_outbox_events_sent([e.id for e in sheets_events])
             logger.info("Sent %s audit outbox events to Google Sheets", len(sheets_events))
         except Exception as error:
