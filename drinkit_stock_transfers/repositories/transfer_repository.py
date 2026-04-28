@@ -155,7 +155,7 @@ class TransferRepository:
 
     def fetch_zero_summary(self, date_from, date_to):
         """
-        Стабильный агрегированный отчёт по точкам.
+        Агрегированный отчёт по ТОЧКАМ ПОЛУЧЕНИЯ (destination)
         """
         with self.conn.cursor() as cur:
             cur.execute(
@@ -185,7 +185,7 @@ class TransferRepository:
                         AND ti.shipped_quantity = 0
                     ) AS товары_непривезены
                 FROM transfer_items ti
-                JOIN units u ON u.unit_uuid = ti.origin_unit_id
+                JOIN units u ON u.unit_uuid = ti.destination_unit_id
                 WHERE ti.expected_at_local >= %s
                   AND ti.expected_at_local < %s
                 GROUP BY u.unit_name
