@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
 import gspread
@@ -23,6 +23,8 @@ def normalize_row(row):
         if isinstance(x, Decimal):
             normalized.append(float(x))
         elif isinstance(x, datetime):
+            normalized.append(x.isoformat())
+        elif isinstance(x, date):
             normalized.append(x.isoformat())
         else:
             normalized.append(x)
