@@ -35,3 +35,20 @@ class ReportingService:
         except Exception as error:
             logger.error(f"Failed to push rows to Google Sheets: {error}")
             raise
+
+    def push_zero_summary(self, rows):
+        if not rows:
+            return
+        headers = [
+            "Дата",
+            "Точка",
+            "Всего заказано",
+            "Не привезено",
+            "% непривоза",
+            "Товары",
+        ]
+        self.sheets_client.push_summary_rows(
+            sheet_name="Отчет",
+            rows=[list(r) for r in rows],
+            headers=headers,
+        )

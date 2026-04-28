@@ -37,8 +37,6 @@ class TransferRepository:
         seen = set()
         rows = []
         for item in transfers:
-            if item.get("shippedQuantity") != 0:
-                continue
             key = (item.get("transferOrderId"), item.get("stockItemId"))
             if key in seen:
                 continue
@@ -140,3 +138,52 @@ class TransferRepository:
                 (date,),
             )
             return cur.fetchone()[0]
+
+    def has_summary_for_date(self, date):
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT EXISTS(
+                    SELECT 1
+                    FROM transfer_items
+                    WHERE DATE(expected_at_local) = %s
+                )
+                """,
+                (date,),
+            )
+            return cur.fetchone()[0]
+
+    def fetch_zero_summary(self, date):
+        """Агрегированный отчет по точкам"""
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT
+                    DATE(ti.expected_at_local) as дата,
+                    u.unit_name AS точка,
+                    COUNT(*) FILTER (WHERE ti.ordered_quantity > 0) AS всего_заказано,
+                    COUNT(*) FILTER (
+                        WHERE ti.ordered_quantity > 0 AND ti.shipped_quantity = 0
+                    ) AS не_привезено,
+                    ROUND(
+                        COUNT(*) FILTER (
+                            WHERE ti.ordered_quantity > 0 AND ti.shipped_quantity = 0
+                        ) * 100.0 /
+                        NULLIF(COUNT(*) FILTER (WHERE ti.ordered_quantity > 0), 0),
+                        2
+                    ) AS процент_непривоза,
+                    STRING_AGG(
+                        ti.stock_item_name,
+                        ', '
+                    ) FILTER (
+                        WHERE ti.shipped_quantity = 0 AND ti.ordered_quantity > 0
+                    ) AS товары_непривезены
+                FROM transfer_items ti
+                JOIN units u ON u.unit_uuid = ti.origin_unit_id
+                WHERE DATE(ti.expected_at_local) = %s
+                GROUP BY дата, u.unit_name
+                ORDER BY u.unit_name
+                """,
+                (date,),
+            )
+            return cur.fetchall()
