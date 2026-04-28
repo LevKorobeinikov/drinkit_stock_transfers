@@ -1,5 +1,5 @@
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from drinkit_stock_transfers.clients.dodo_api import DodoAPIClient
 from drinkit_stock_transfers.clients.google_sheets_client import GoogleSheetsClient
@@ -15,14 +15,16 @@ logger = get_logger(__name__)
 def run_transfer_job():
     DBConnectionPool.initialize(minconn=1, maxconn=5)
     today = datetime.now().date()
+    date_from = datetime.combine(today, datetime.min.time())
+    date_to = date_from + timedelta(days=1)
     try:
         api_client = DodoAPIClient()
         with get_db_connection() as conn:
             repo = TransferRepository(conn)
             service = TransferService(api_client, repo)
             service.run_daily_sync()
-            summary_rows = repo.fetch_zero_summary(today)
-            if not not summary_rows:
+            summary_rows = repo.fetch_zero_summary(date_from, date_to)
+            if not summary_rows:
                 logger.info("No data to push")
                 return
             sheets_client = GoogleSheetsClient(
